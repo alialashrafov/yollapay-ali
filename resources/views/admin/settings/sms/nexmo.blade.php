@@ -20,6 +20,7 @@
                     <ul class="nav nav-tabs" id="tabs">
                         <li><a href="{{ url('admin/settings/sms/twilio') }}">Twilio</a></li>
                         <li class="active"><a href="{{ url('admin/settings/sms/nexmo')}}">Nexmo</a></li>
+                        <li><a href="{{ url('admin/settings/sms/toplusms')}}">Toplusms</a></li>
                     </ul>
 
                     <div class="tab-content">

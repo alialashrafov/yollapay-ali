@@ -388,10 +388,12 @@ Route::group(['prefix' => 'admin', 'namespace' => 'Admin', 'middleware' => ['gue
 Route::group(['middleware' => ['no_auth:users', 'locale']], function ()
 {
     Route::get('/login', 'Auth\LoginController@index')->name("login");
+    Route::get('/otp-verify/{user_uid}', 'Auth\LoginController@otpVerify')->name("otp-verify");
     Route::post('/authenticate', 'Auth\LoginController@authenticate');
     Route::get('register', 'Auth\RegisterController@create');
     Route::post('register/duplicate-phone-number-check', 'Auth\RegisterController@registerDuplicatePhoneNumberCheck');
     Route::post('register/store', 'Auth\RegisterController@store');
+    Route::post('verification/otp', 'Auth\RegisterController@verifyOtp');
     Route::get('/user/verify/{token}', 'Auth\RegisterController@verifyUser');
     Route::match(['GET', 'POST'], 'forget-password', 'Auth\ForgotPasswordController@forgetPassword');
     Route::get('password/resets/{token}', 'Auth\ForgotPasswordController@verifyToken');

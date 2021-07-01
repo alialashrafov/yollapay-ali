@@ -35,6 +35,8 @@ class User extends Authenticatable
         'defaultCountry',
         'carrierCode',
         'email',
+        'otp',
+        'is_mobile_verified',
         'password',
         'phrase',
         'status',
@@ -229,9 +231,9 @@ class User extends Authenticatable
         $userDetail->user_id = $userId;
 
         $defaultCountry      = (! empty(Country::where('short_name', $user->defaultCountry)->first(['id'])) ) ? Country::where('short_name', $user->defaultCountry)->first(['id']) : Country::where('is_default', 'yes')->first(['id']);
-       
+
         $userDetail->country_id = $defaultCountry->id;
-        
+
         // Get system default timezone
         $timezone             = Preference::where(['category' => 'preference', 'field' => 'dflt_timezone'])->first(['value']);
         $userDetail->timezone = $timezone->value;

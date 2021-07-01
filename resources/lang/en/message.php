@@ -61,6 +61,7 @@ return [
         'button'                   => [
             'sign-up' => 'Sign Up',
             'login'   => 'Login',
+            'verify-otp'   => 'Verify OTP',
         ],
         'forget-password-form'     => 'Forgot Password',
         'reset-password'           => 'Reset Password',
@@ -338,6 +339,7 @@ return [
 
     'registration'         => [
         'title'                => 'Registration',
+        'two-step-verificarion' => '2 Step verification Proccess',
         'form-title'           => 'Create New User',
         'first-name'           => 'First Name',
         'last-name'            => 'Last Name',
@@ -352,6 +354,7 @@ return [
         'type-user'            => 'User',
         'type-merchant'        => 'Merchant',
         'select-user-type'     => 'Select User Type',
+        'otp'     => 'OTP',
     ],
 
     'dashboard'            => [

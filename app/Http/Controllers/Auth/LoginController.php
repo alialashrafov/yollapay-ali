@@ -21,6 +21,8 @@ use App\Models\{DeviceLog,
     Wallet,
     User
 };
+use App\Http\Helpers\Otp;
+use Illuminate\Support\Facades\Crypt;
 use Carbon\Carbon;
 use Exception;
 
@@ -49,6 +51,12 @@ class LoginController extends Controller
         captchaCheck($setting, 'site_key');
 
         return view('frontend.auth.login', $data);
+    }
+
+    public function otpVerify($userUid)
+    {
+        $data['title'] = 'otp-verify';
+        return view('frontend.auth.otp-verify', compact('data','userUid'));
     }
 
     public function authenticate(Request $request)
@@ -142,148 +150,18 @@ class LoginController extends Controller
                 ]);
                 $type = $loginData['type'];
                 $data = $request->only($type, 'password');
-
-                if (Auth::attempt($data))
+                $user = User::whereEmail($request->email)->first();
+                if (password_verify($request->password, $user->password))
                 {
-                    $preferences = Preference::where('field', '!=', 'dflt_lang')->get();
-                    if (!empty($preferences))
-                    {
-                        foreach ($preferences as $pref)
-                        {
-                            $pref_arr[$pref->field] = $pref->value;
-                        }
-                    }
-                    if (!empty($preferences))
-                    {
-                        Session::put($pref_arr);
-                    }
-
-                    // default_currency
-                    $default_currency = Setting::where('name', 'default_currency')->first();
-                    if (!empty($default_currency))
-                    {
-                        Session::put('default_currency', $default_currency->value);
-                    }
-
-                    //default_timezone
-                    $default_timezone = User::with(['user_detail:id,user_id,timezone'])->where(['id' => auth()->user()->id])->first(['id'])->user_detail->timezone;
-                    if (!$default_timezone)
-                    {
-                        Session::put('dflt_timezone_user', session('dflt_timezone'));
-                    }
-                    else
-                    {
-                        Session::put('dflt_timezone_user', $default_timezone);
-                    }
-
-                    // default_language
-                    $default_language = Setting::where('name', 'default_language')->first();
-                    if (!empty($default_language))
-                    {
-                        Session::put('default_language', $default_language->value);
-                    }
-
-                    // company_name
-                    $company_name = Setting::where('name', 'name')->first();
-                    if (!empty($company_name))
-                    {
-                        Session::put('name', $company_name->value);
-                    }
-
-                    // company_logo
-                    $company_logo = Setting::where(['name' => 'logo', 'type' => 'general'])->first();
-                    if (!empty($company_logo))
-                    {
-                        Session::put('company_logo', $company_logo->value);
-                    }
-
-
-                    try
-                    {
-                        DB::beginTransaction();
-
-                        //check default wallet
-                        $chkWallet = Wallet::where(['user_id' => Auth::user()->id, 'currency_id' => $default_currency->value])->first();
-                        if (empty($chkWallet))
-                        {
-                            $wallet              = new Wallet();
-                            $wallet->user_id     = Auth::user()->id;
-                            $wallet->currency_id = $default_currency->value;
-                            $wallet->balance     = 0.00;
-                            $wallet->is_default  = 'No'; //fixed
-                            $wallet->save();
-                        }
-                        $log                  = [];
-                        $log['user_id']       = Auth::check() ? Auth::user()->id : null;
-                        $log['type']          = 'User';
-                        $log['ip_address']    = $request->ip();
-                        $log['browser_agent'] = $request->header('user-agent');
-                        ActivityLog::create($log);
-
-                        //user_detail - adding last_login_at and last_login_ip
-                        auth()->user()->user_detail()->update([
-                            'last_login_at' => Carbon::now()->toDateTimeString(),
-                            'last_login_ip' => $request->getClientIp(),
-                        ]);
-
-                        DB::commit();
-
-                        //2fa
-                        $two_step_verification = Preference::where(['category' => 'preference', 'field' => 'two_step_verification'])->first(['value'])->value;
-                        $checkDeviceLog        = DeviceLog::where(['user_id' => auth()->user()->id, 'browser_fingerprint' => $request->browser_fingerprint])->first(['browser_fingerprint']);
-
-                        Session::put('browser_fingerprint', $request->browser_fingerprint); //putting browser_fingerprint on session to restrict users accessing dashboard
-
-                        if (auth()->user()->user_detail->two_step_verification_type != "disabled" && $two_step_verification != "disabled")
-                        {
-                            if (auth()->user()->user_detail->two_step_verification_type == "google_authenticator")
-                            {
-                                if (!auth()->user()->user_detail->two_step_verification || empty($checkDeviceLog))
-                                {
-                                    $google2fa                             = app('pragmarx.google2fa');
-                                    $registration_data                     = $request->all();
-                                    $registration_data["google2fa_secret"] = $google2fa->generateSecretKey();
-
-                                    $request->session()->flash('registration_data', $registration_data);
-
-                                    $QR_Image = $google2fa->getQRCodeInline(
-                                        config('app.name'),
-                                        auth()->user()->email,
-                                        $registration_data['google2fa_secret']
-                                    );
-                                    $data = [
-                                        'QR_Image' => $QR_Image,
-                                        'secret'   => $registration_data['google2fa_secret'],
-                                    ];
-                                    return \Redirect::route('google2fa')->with(['data' => $data]);
-                                }
-                                else
-                                {
-                                    return redirect('dashboard');
-                                }
-                            }
-                            else
-                            {
-                                if (!auth()->user()->user_detail->two_step_verification || empty($checkDeviceLog))
-                                {
-                                    $this->execute2fa();
-                                    return redirect('2fa');
-                                }
-                                else
-                                {
-                                    return redirect('dashboard');
-                                }
-                            }
-                        }
-                        else
-                        {
-                            return redirect('dashboard');
-                        }
-                    }
-                    catch (Exception $e)
-                    {
-                        DB::rollBack();
-                        $this->helper->one_time_message('danger', $e->getMessage());
+                    $isSent = Otp::sendOtp($user);
+                    if($isSent){
+                        $data['id'] = $user->id;
+                        $data['type'] = 'login';
+                        $data['request'] = $request->all();
+                        $userUid = Crypt::encrypt($data);
+                        return redirect()->route('otp-verify',$userUid);
+                    }else{
+                        $this->helper->one_time_message('danger', __('Unable to send otp!'));
                         return redirect('/login');
                     }
                 }
@@ -450,6 +328,181 @@ class LoginController extends Controller
                 $twoStepVerification_msg = str_replace('{soft_name}', getCompanyName(), $twoStepVerification_msg);
                 $this->email->sendEmail(auth()->user()->email, $twoStepVerification_sub, $twoStepVerification_msg);
             }
+        }
+    }
+
+    public function loginProccess($request){
+
+        if ($request->login_via == 'email_only')
+        {
+            $loginValue = $request->input('email_only');
+        }
+        elseif ($request->login_via == 'phone_only')
+        {
+            $loginValue = $request->input('phone_only');
+        }
+        else
+        {
+            $loginValue = $request->input('email_or_phone');
+        }
+        // dd($loginValue);
+        //Get Login Type
+        $loginData = $this->getLoginData($loginValue, $request->login_via);
+        //Change request type based on user input
+        $request->merge([
+            $loginData['type'] => $loginData['value'],
+        ]);
+        $type = $loginData['type'];
+        $data = $request->only($type, 'password');
+
+        if (Auth::attempt($data))
+        {
+            $preferences = Preference::where('field', '!=', 'dflt_lang')->get();
+            if (!empty($preferences))
+            {
+                foreach ($preferences as $pref)
+                {
+                    $pref_arr[$pref->field] = $pref->value;
+                }
+            }
+            if (!empty($preferences))
+            {
+                Session::put($pref_arr);
+            }
+
+            // default_currency
+            $default_currency = Setting::where('name', 'default_currency')->first();
+            if (!empty($default_currency))
+            {
+                Session::put('default_currency', $default_currency->value);
+            }
+
+            //default_timezone
+            $default_timezone = User::with(['user_detail:id,user_id,timezone'])->where(['id' => auth()->user()->id])->first(['id'])->user_detail->timezone;
+            if (!$default_timezone)
+            {
+                Session::put('dflt_timezone_user', session('dflt_timezone'));
+            }
+            else
+            {
+                Session::put('dflt_timezone_user', $default_timezone);
+            }
+
+            // default_language
+            $default_language = Setting::where('name', 'default_language')->first();
+            if (!empty($default_language))
+            {
+                Session::put('default_language', $default_language->value);
+            }
+
+            // company_name
+            $company_name = Setting::where('name', 'name')->first();
+            if (!empty($company_name))
+            {
+                Session::put('name', $company_name->value);
+            }
+
+            // company_logo
+            $company_logo = Setting::where(['name' => 'logo', 'type' => 'general'])->first();
+            if (!empty($company_logo))
+            {
+                Session::put('company_logo', $company_logo->value);
+            }
+
+
+            try
+            {
+                DB::beginTransaction();
+
+                //check default wallet
+                $chkWallet = Wallet::where(['user_id' => Auth::user()->id, 'currency_id' => $default_currency->value])->first();
+                if (empty($chkWallet))
+                {
+                    $wallet              = new Wallet();
+                    $wallet->user_id     = Auth::user()->id;
+                    $wallet->currency_id = $default_currency->value;
+                    $wallet->balance     = 0.00;
+                    $wallet->is_default  = 'No'; //fixed
+                    $wallet->save();
+                }
+                $log                  = [];
+                $log['user_id']       = Auth::check() ? Auth::user()->id : null;
+                $log['type']          = 'User';
+                $log['ip_address']    = $request->ip();
+                $log['browser_agent'] = $request->header('user-agent');
+                ActivityLog::create($log);
+
+                //user_detail - adding last_login_at and last_login_ip
+                auth()->user()->user_detail()->update([
+                    'last_login_at' => Carbon::now()->toDateTimeString(),
+                    'last_login_ip' => $request->getClientIp(),
+                ]);
+
+                DB::commit();
+
+                //2fa
+                $two_step_verification = Preference::where(['category' => 'preference', 'field' => 'two_step_verification'])->first(['value'])->value;
+                $checkDeviceLog        = DeviceLog::where(['user_id' => auth()->user()->id, 'browser_fingerprint' => $request->browser_fingerprint])->first(['browser_fingerprint']);
+
+                Session::put('browser_fingerprint', $request->browser_fingerprint); //putting browser_fingerprint on session to restrict users accessing dashboard
+
+                if (auth()->user()->user_detail->two_step_verification_type != "disabled" && $two_step_verification != "disabled")
+                {
+                    if (auth()->user()->user_detail->two_step_verification_type == "google_authenticator")
+                    {
+                        if (!auth()->user()->user_detail->two_step_verification || empty($checkDeviceLog))
+                        {
+                            $google2fa                             = app('pragmarx.google2fa');
+                            $registration_data                     = $request->all();
+                            $registration_data["google2fa_secret"] = $google2fa->generateSecretKey();
+
+                            $request->session()->flash('registration_data', $registration_data);
+
+                            $QR_Image = $google2fa->getQRCodeInline(
+                                config('app.name'),
+                                auth()->user()->email,
+                                $registration_data['google2fa_secret']
+                            );
+                            $data = [
+                                'QR_Image' => $QR_Image,
+                                'secret'   => $registration_data['google2fa_secret'],
+                            ];
+                            return \Redirect::route('google2fa')->with(['data' => $data]);
+                        }
+                        else
+                        {
+                            return redirect('dashboard');
+                        }
+                    }
+                    else
+                    {
+                        if (!auth()->user()->user_detail->two_step_verification || empty($checkDeviceLog))
+                        {
+                            $this->execute2fa();
+                            return redirect('2fa');
+                        }
+                        else
+                        {
+                            return redirect('dashboard');
+                        }
+                    }
+                }
+                else
+                {
+                    return redirect('dashboard');
+                }
+            }
+            catch (Exception $e)
+            {
+                DB::rollBack();
+                $this->helper->one_time_message('danger', $e->getMessage());
+                return redirect('/login');
+            }
+        }
+        else
+        {
+            $this->helper->one_time_message('danger', __('Unable to login with provided credentials!'));
+            return redirect('/login');
         }
     }
 

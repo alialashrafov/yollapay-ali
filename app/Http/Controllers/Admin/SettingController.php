@@ -478,42 +478,6 @@ class SettingController extends Controller
     //sms settings
     public function sms(Request $request, $type)
     {
-
-        // $curl = curl_init();
-
-        // $params = [
-        // 'api_id' => '0147b3b05873f91f998d6075',
-        // 'api_key' => '646a47ce4cff1649cc0616f6',
-        // 'sender' => 'YOLLAPAY',
-        // 'message_type' => 'normal',
-        // 'message' => 'Bu bir test mesajıdır.',
-        // 'phones' => [
-        //     '05413522446'
-        // ]
-        // ];
-
-        // $curl_options = [
-        // CURLOPT_URL => 'https://api.toplusmspaketleri.com/api/v1/1toN',
-        // CURLOPT_RETURNTRANSFER => true,
-        // CURLOPT_TIMEOUT => 0,
-        // CURLOPT_FOLLOWLOCATION => true,
-        // CURLOPT_CUSTOMREQUEST => 'POST',
-        // CURLOPT_POSTFIELDS => json_encode($params),
-        // CURLOPT_HTTPHEADER => [
-        //     'Content-Type: application/json'
-        // ]
-        // ];
-
-        // curl_setopt_array($curl, $curl_options);
-
-        // $response = curl_exec($curl);
-
-        // curl_close($curl);
-
-        // dd($response);
-
-
-
         $data['menu'] = 'sms';
 
         if (!$request->isMethod('post'))
@@ -529,6 +493,11 @@ class SettingController extends Controller
                 $data['nexmo']       = $nexmo       = SmsConfig::where(['type' => $type])->first();
                 $data['credentials'] = $credentials = json_decode($nexmo->credentials);
                 return view('admin.settings.sms.nexmo', $data);
+            }else if ($type == 'toplusms')
+            {
+                $data['toplusms']       = $toplusms       = SmsConfig::where(['type' => $type])->first();
+                $data['credentials'] = $credentials = json_decode($toplusms->credentials);
+                return view('admin.settings.sms.toplusms', $data);
             }
         }
         else
@@ -612,6 +581,46 @@ class SettingController extends Controller
                     }
                     $this->helper->one_time_message('success', 'Nexmo SMS settings updated successfully!');
                     return redirect('admin/settings/sms/nexmo');
+                }
+            }else if ($type == 'toplusms')
+            {
+                $rules = array(
+                    'name'                             => 'required',
+                    'toplusms.Key'                        => 'required',
+                    'toplusms.id'                     => 'required',
+                    'toplusms.default_toplusms_sender' => 'required',
+                    'status'                           => 'required',
+                );
+                $fieldNames = array(
+                    'name'                             => 'Name',
+                    'toplusms.Key'                        => 'toplusms Key',
+                    'toplusms.id'                     => 'toplusms id',
+                    'toplusms.default_toplusms_sender' => 'toplusms sender id',
+                    'status'                           => 'Status',
+                );
+
+                $validator = Validator::make($request->all(), $rules);
+                $validator->setAttributeNames($fieldNames);
+                if ($validator->fails())
+                {
+
+                    return back()->withErrors($validator)->withInput();
+                }
+
+                $toplusmsSmsConfig = SmsConfig::where(['type' => base64_decode($request->type)])->first();
+                if (!empty($toplusmsSmsConfig) && (($request->status == 'Active') || ($request->status == 'Inactive')))
+                {
+                    $toplusmsSmsConfig->credentials = json_encode($request->toplusms);
+                    $toplusmsSmsConfig->status      = $request->status == 'Active' ? 'Active' : 'Inactive';
+                    $toplusmsSmsConfig->save();
+                    if ($toplusmsSmsConfig->status == 'Active')
+                    {
+                        $twilioSmsConfig         = SmsConfig::where(['type' => 'twilio'])->first(['id', 'status']);
+                        $twilioSmsConfig->status = 'Inactive';
+                        $twilioSmsConfig->save();
+                    }
+                    $this->helper->one_time_message('success', 'Toplusms SMS settings updated successfully!');
+                    return redirect('admin/settings/sms/toplusms');
                 }
             }
         }

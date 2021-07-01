@@ -3,19 +3,22 @@
 namespace App\Http\Controllers\Auth;
 
 use App\Http\Controllers\Users\EmailController;
+use App\Http\Controllers\Auth\LoginController;
 use App\Http\Controllers\Controller;
 use Illuminate\Support\Facades\{DB,
-    Validator, 
+    Validator,
     Auth
 };
 use Illuminate\Http\Request;
 use App\Http\Helpers\Common;
+use App\Http\Helpers\Otp;
 use App\Models\{RoleUser,
     VerifyUser,
     Setting,
     User,
     Role
 };
+use Illuminate\Support\Facades\Crypt;
 use Exception;
 
 class RegisterController extends Controller
@@ -136,8 +139,14 @@ class RegisterController extends Controller
                     }
                     //email_verification - ends
                     DB::commit();
-                    $this->helper->one_time_message('success', __('Registration Successful!'));
-                    return redirect('/login');
+                    $isSent = Otp::sendOtp($user);
+                    if($isSent){
+                        $userUid = Crypt::encrypt($user->id);
+                        return redirect()->route('otp-verify',$userUid);
+                    }else{
+                        $this->helper->one_time_message('danger', __('Unable to send otp!'));
+                        return redirect('/register');
+                    }
                 }
                 catch (Exception $e)
                 {
@@ -210,5 +219,26 @@ class RegisterController extends Controller
             $data['success'] = "The phone number is Available!";
         }
         return json_encode($data);
+    }
+
+    public function verifyOtp(Request $request){
+
+        $userDetails = Crypt::decrypt($request->user_uid);
+        $verifyOtp = User::whereId($userDetails['id'])->whereOtp($request->otp)->first();
+        if(!empty($verifyOtp)){
+            if($userDetails['type'] == 'register'){
+            $this->helper->one_time_message('success', __('Registration Successful!'));
+            return redirect('/login');
+        }
+
+            if($userDetails['type'] == 'login'){
+                $this->helper->one_time_message('success', __('Login Successful!'));
+                $login = new LoginController();
+                $request = new Request($userDetails['request']);
+                $login->loginProccess($request);
+            }
+        }
+
+        return redirect('/login');
     }
 }
